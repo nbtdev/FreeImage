@@ -42,6 +42,31 @@ set(SOURCES
     Source/FreeImage/ToneMapping.cpp
     Source/FreeImage/WuQuantizer.cpp
     Source/FreeImage/ZLibInterface.cpp
+
+    Source/Metadata/Exif.cpp
+    Source/Metadata/FIRational.cpp
+    Source/Metadata/FIRational.h
+    Source/Metadata/FreeImageTag.cpp
+    Source/Metadata/FreeImageTag.h
+    Source/Metadata/IPTC.cpp
+    Source/Metadata/TagConversion.cpp
+    Source/Metadata/TagLib.cpp
+    Source/Metadata/XTIFF.cpp
+
+    Source/FreeImageToolkit/Background.cpp
+    Source/FreeImageToolkit/BSplineRotate.cpp
+    Source/FreeImageToolkit/Channels.cpp
+    Source/FreeImageToolkit/ClassicRotate.cpp
+    Source/FreeImageToolkit/Colors.cpp
+    Source/FreeImageToolkit/CopyPaste.cpp
+    Source/FreeImageToolkit/Display.cpp
+    Source/FreeImageToolkit/Filters.h
+    Source/FreeImageToolkit/Flip.cpp
+    Source/FreeImageToolkit/JPEGTransform.cpp
+    Source/FreeImageToolkit/MultigridPoissonSolver.cpp
+    Source/FreeImageToolkit/Rescale.cpp
+    Source/FreeImageToolkit/Resize.cpp
+    Source/FreeImageToolkit/Resize.h
 )
 
 set(PLUGIN_SOURCES
@@ -56,24 +81,17 @@ set(PLUGIN_SOURCES
     Source/FreeImage/PluginIFF.cpp
     Source/FreeImage/PluginJ2K.cpp
     Source/FreeImage/PluginJNG.cpp
-    Source/FreeImage/PluginJP2.cpp
-    Source/FreeImage/PluginJPEG.cpp
     Source/FreeImage/PluginKOALA.cpp
-    Source/FreeImage/PluginMNG.cpp
     Source/FreeImage/PluginPCD.cpp
     Source/FreeImage/PluginPCX.cpp
     Source/FreeImage/PluginPFM.cpp
     Source/FreeImage/PluginPICT.cpp
-    Source/FreeImage/PluginPNG.cpp
     Source/FreeImage/PluginPNM.cpp
     Source/FreeImage/PluginPSD.cpp
     Source/FreeImage/PluginRAS.cpp
-    Source/FreeImage/PluginRAW.cpp
     Source/FreeImage/PluginSGI.cpp
     Source/FreeImage/PluginTARGA.cpp
-    Source/FreeImage/PluginTIFF.cpp
     Source/FreeImage/PluginWBMP.cpp
-    Source/FreeImage/PluginWebP.cpp
     Source/FreeImage/PluginXBM.cpp
     Source/FreeImage/PluginXPM.cpp
 )
@@ -81,27 +99,56 @@ set(PLUGIN_SOURCES
 file(GLOB INCLUDES Source/*.h)
 
 include(FindPkgConfig)
+message(STATUS "Finding optional FreeImage modules:")
 
-# Find installed OpenEXR library, if any
-pkg_search_module(EXR OpenEXR)
-if(EXR_MODULE_NAME)
-    message(STATUS "OpenEXR module found: ${EXR_MODULE_NAME}")
-    list(APPEND PLUGIN_SOURCES Source/FreeImage/PluginEXR.cpp)
-    list(APPEND PLUGIN_DEPS ${EXR_MODULE_NAME})
+function(find_installed_library LIB_NAME PLUGIN_NAME)
+    # Find requested library, if any
+    pkg_search_module(${LIB_NAME} IMPORTED_TARGET ${LIB_NAME})
+    if(${LIB_NAME}_FOUND)
+        message(STATUS "    ${LIB_NAME} module found: ${${LIB_NAME}_VERSION}")
+        set(PLUGIN_SOURCES ${PLUGIN_SOURCES} Source/FreeImage/Plugin${PLUGIN_NAME}.cpp PARENT_SCOPE)
+        set(PLUGIN_DEPS ${PLUGIN_DEPS} PkgConfig::${LIB_NAME} PARENT_SCOPE)
+        set(FREEIMAGE_HAVE_${PLUGIN_NAME} 1)
+    else()
+        message(STATUS "    ${LIB_NAME} module not found, building without ${LIB_NAME} support")
+        unset(FREEIMAGE_HAVE_${PLUGIN_NAME})
+    endif()
+endfunction()
+
+find_installed_library(OpenEXR EXR)
+find_installed_library(JXR JXR)
+find_installed_library(libtiff-4 TIFF)
+find_installed_library(libpng PNG)
+find_installed_library(libjpeg JPEG)
+find_installed_library(libmng MNG)
+find_installed_library(libopenjp2 JP2)
+
+# currently does not "find" properly on Ubuntu
+#find_installed_library(libraw RAW)
+
+# webp needs special handling since it requires two .pc files for a single plugin
+pkg_check_modules(WebP IMPORTED_TARGET libwebp libwebpmux)
+if(WebP_FOUND)
+    message(STATUS "    WebP module found: ${WebP_VERSION}")
+    list(APPEND PLUGIN_SOURCES Source/FreeImage/PluginWebP.cpp)
+    list(APPEND PLUGIN_DEPS PkgConfig::WebP)
+    set(FREEIMAGE_HAVE_WebP 1)
+else()
+    message(STATUS "    WebP module not found, building without WebP support")
+    unset(FREEIMAGE_HAVE_WebP)
 endif()
 
-# Find installed JXR library, if any
-pkg_search_module(JXR JXR)
-if(JXR_MODULE_NAME)
-    message(STATUS "JXR module found: ${JXR_MODULE_NAME}")
-    list(APPEND PLUGIN_SOURCES Source/FreeImage/PluginJXR.cpp)
-    list(APPEND PLUGIN_DEPS ${JXR_MODULE_NAME})
-endif()
 
 add_library(${TARGET} STATIC ${SOURCES} ${PLUGIN_SOURCES} ${INCLUDES})
 
 target_include_directories(${TARGET}
     PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/Source
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/Source>
+)
 
+target_link_libraries(${TARGET}
+    PRIVATE
+        ${PLUGIN_DEPS}
 )
